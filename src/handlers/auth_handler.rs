@@ -62,20 +62,25 @@ pub async fn login(
     Json(payload): Json<LoginDto>,
 ) -> Json<AuthResponse> {
 
-    let row =
-        sqlx::query(
-            "
-            SELECT
-                id,
-                password_hash
-            FROM users
-            WHERE email = $1
-            ",
-        )
-        .bind(&payload.email)
-        .fetch_one(&state.db)
-        .await
-        .unwrap();
+    let row = sqlx::query(
+    "
+    SELECT id,password_hash
+    FROM users
+    WHERE email = $1
+    "
+)
+.bind(&payload.email)
+.fetch_optional(&state.db)
+.await
+.unwrap();
+
+if row.is_none() {
+    return Json(AuthResponse {
+        token: "INVALID_CREDENTIALS".to_string()
+    });
+}
+
+let row = row.unwrap();
 
     let id: Uuid =
         row.get("id");
