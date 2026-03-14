@@ -1,30 +1,60 @@
 mod config;
+mod app_state;
+mod routes;
+mod handlers;
+mod services;
+mod dto;
+mod models;
+mod middleware;
 
 use axum::{
     routing::get,
     Router,
 };
 
+use app_state::AppState;
 use config::database::connect_db;
+use routes::auth_routes::auth_routes;
 
 #[tokio::main]
 async fn main() {
 
     dotenvy::dotenv().ok();
 
-    let _db = connect_db().await;
+    let db = connect_db().await;
+
+    println!("Connexion PostgreSQL réussie");
+
+    let state = AppState {
+        db: db.clone(),
+    };
 
     let app = Router::new()
-        .route("/", get(|| async {
-            "IoT Monitoring API"
-        }));
+
+        .route(
+            "/",
+            get(|| async {
+                "IoT Monitoring API"
+            }),
+        )
+
+        .nest(
+            "/api/auth",
+            auth_routes(),
+        )
+
+        .with_state(state);
 
     let listener =
-        tokio::net::TcpListener::bind("0.0.0.0:8000")
-            .await
-            .unwrap();
+        tokio::net::TcpListener::bind(
+            "0.0.0.0:8000",
+        )
+        .await
+        .unwrap();
 
-    println!("Serveur démarré sur le port 8000");
+    println!(
+        "Serveur démarré sur http://localhost:8000"
+    );
 
     axum::serve(listener, app)
         .await
