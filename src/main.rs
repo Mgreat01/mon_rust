@@ -42,6 +42,10 @@ async fn main() {
             "/api/auth",
             auth_routes(),
         )
+        .nest(
+        "/api/devices",
+        device_routes(),
+        )
 
         .with_state(state);
 
@@ -55,6 +59,15 @@ async fn main() {
     println!(
         "Serveur démarré sur http://localhost:8000"
     );
+
+    use routes::{
+    auth_routes::auth_routes,
+    device_routes::device_routes,
+};
+.nest(
+    "/api/devices",
+    device_routes(),
+)
 
     axum::serve(listener, app)
         .await
