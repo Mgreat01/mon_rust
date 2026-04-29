@@ -14,7 +14,10 @@ use axum::{
 
 use app_state::AppState;
 use config::database::connect_db;
-use routes::auth_routes::auth_routes;
+use routes::{
+    auth_routes::auth_routes,
+    device_routes::device_routes,
+};
 
 #[tokio::main]
 async fn main() {
@@ -43,10 +46,9 @@ async fn main() {
             auth_routes(),
         )
         .nest(
-        "/api/devices",
-        device_routes(),
+            "/api/devices",
+            device_routes(),
         )
-
         .with_state(state);
 
     let listener =
@@ -60,14 +62,7 @@ async fn main() {
         "Serveur démarré sur http://localhost:8000"
     );
 
-    use routes::{
-    auth_routes::auth_routes,
-    device_routes::device_routes,
-};
-.nest(
-    "/api/devices",
-    device_routes(),
-)
+    
 
     axum::serve(listener, app)
         .await
