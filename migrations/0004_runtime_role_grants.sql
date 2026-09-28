@@ -1,0 +1,17 @@
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iot_app') THEN
+        GRANT USAGE ON SCHEMA public, app_private TO iot_app;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO iot_app;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO iot_app;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA app_private TO iot_app;
+
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO iot_app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT USAGE, SELECT ON SEQUENCES TO iot_app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA app_private
+            GRANT EXECUTE ON FUNCTIONS TO iot_app;
+    END IF;
+END
+$$;
