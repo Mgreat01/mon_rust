@@ -28,6 +28,10 @@ Toutes les routes métier sont préfixées par `/api/v1`.
 | `GET` | `/ready` | aucune | Disponibilité de PostgreSQL |
 | `POST` | `/api/v1/auth/register` | aucune | Créer un tenant et son administrateur |
 | `POST` | `/api/v1/auth/login` | aucune | Obtenir un JWT |
+| `POST` | `/api/v1/auth/refresh` | refresh token | Renouveler et faire tourner la session |
+| `POST` | `/api/v1/auth/logout` | refresh token | Révoquer la session courante |
+| `POST` | `/api/v1/auth/forgot-password` | aucune | Demander une réinitialisation générique |
+| `POST` | `/api/v1/auth/reset-password` | reset token | Définir un nouveau mot de passe |
 | `GET` | `/api/v1/auth/me` | Bearer | Profil courant |
 | `GET/POST` | `/api/v1/devices` | Bearer | Lister/créer les appareils |
 | `GET/PUT/DELETE` | `/api/v1/devices/{id}` | Bearer | Consulter/modifier/supprimer un appareil |
@@ -60,6 +64,14 @@ Content-Type: application/json
 ```
 
 La rotation incrémente `api_key_version` et rend immédiatement l'ancienne clé inutilisable. La révocation conserve l'appareil et son historique mais bloque toute nouvelle ingestion. Une rotation après révocation produit une nouvelle clé active. Les clés en clair ne sont ni stockées ni récupérables ; conservez la valeur retournée par la création ou la rotation dans un gestionnaire de secrets.
+
+## Sessions utilisateur
+
+Le JWT d'accès expire après 15 minutes. Le refresh token expire après 30 jours, n'est stocké qu'en SHA-256 et est remplacé à chaque renouvellement. La réutilisation d'un ancien refresh token révoque toute sa famille de sessions. La déconnexion est idempotente.
+
+Après cinq mots de passe incorrects, le compte est verrouillé pendant 15 minutes. Une réinitialisation réussie déverrouille le compte et révoque toutes ses sessions.
+
+En développement, `/forgot-password` retourne `development_reset_token` pour permettre les tests sans fournisseur d'e-mail. Cette valeur est toujours absente lorsque `APP_ENV=production`. Avant une mise en production, branchez un fournisseur de notification au flux de récupération ; ne journalisez jamais ce jeton.
 
 ## Qualité
 
