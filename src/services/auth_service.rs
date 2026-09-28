@@ -5,11 +5,14 @@ use argon2::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
 
-pub const TOKEN_DURATION_SECONDS: i64 = 86_400;
+pub const TOKEN_DURATION_SECONDS: i64 = 900;
+pub const REFRESH_TOKEN_DURATION_DAYS: i64 = 30;
+pub const RESET_TOKEN_DURATION_MINUTES: i64 = 30;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -69,6 +72,18 @@ pub fn decode_token(token: &str) -> ApiResult<Claims> {
     .map_err(|_| ApiError::unauthorized("Jeton absent, invalide ou expiré"))
 }
 
+pub fn generate_opaque_token(prefix: &str) -> String {
+    format!(
+        "{prefix}_{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    )
+}
+
+pub fn hash_token(token: &str) -> Vec<u8> {
+    Sha256::digest(token.as_bytes()).to_vec()
+}
+
 fn jwt_secret() -> ApiResult<String> {
     let secret = std::env::var("JWT_SECRET").map_err(|_| {
         ApiError::new(
@@ -89,7 +104,7 @@ fn jwt_secret() -> ApiResult<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_password, verify_password};
+    use super::{generate_opaque_token, hash_password, hash_token, verify_password};
 
     #[test]
     fn hash_password_ne_conserve_pas_le_secret() {
@@ -98,5 +113,15 @@ mod tests {
         assert_ne!(hash, password);
         assert!(verify_password(&hash, password));
         assert!(!verify_password(&hash, "mauvais-mot-de-passe"));
+    }
+
+    #[test]
+    fn jetons_opaques_uniques_et_haches() {
+        let first = generate_opaque_token("rft");
+        let second = generate_opaque_token("rft");
+        assert_ne!(first, second);
+        assert!(first.starts_with("rft_"));
+        assert_eq!(hash_token(&first).len(), 32);
+        assert_ne!(hash_token(&first), hash_token(&second));
     }
 }
