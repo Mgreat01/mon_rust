@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::{AlertEvent, AppEvent, AppState},
+    config::tenant::begin_tenant,
     dto::sensor_dto::{CreateSensorDataDto, SensorDataResponse},
     error::{ApiError, ApiResult},
     services::auth_service::verify_password,
@@ -28,7 +29,7 @@ pub async fn authenticate_device(
     let device_id =
         Uuid::parse_str(id_part).map_err(|_| ApiError::unauthorized("Clé d'appareil invalide"))?;
     let row = sqlx::query_as::<_, (Uuid, String, String, Option<DateTime<Utc>>)>(
-        "SELECT tenant_id,api_key_hash,status,credential_revoked_at FROM devices WHERE id=$1",
+        "SELECT tenant_id,api_key_hash,status,credential_revoked_at FROM app_private.device_for_auth($1)",
     )
     .bind(device_id)
     .fetch_optional(pool)
@@ -57,7 +58,7 @@ pub async fn ingest(
         ));
     }
     let event_id = payload.event_id.unwrap_or_else(Uuid::new_v4);
-    let mut tx = state.db.begin().await?;
+    let mut tx = begin_tenant(&state.db, device.tenant_id).await?;
     let existing = sqlx::query_as::<_, (DateTime<Utc>, String, f64, Option<String>)>(
         "SELECT time,metric_type,value,unit FROM sensor_data WHERE tenant_id=$1 AND device_id=$2 AND event_id=$3 LIMIT 1",
     )

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    config::tenant::begin_tenant,
     dto::sensor_dto::{
         AnalyticsPoint, AnalyticsQuery, CreateSensorDataDto, SensorDataQuery, SensorDataResponse,
     },
@@ -39,6 +40,7 @@ pub async fn list_sensor_data(
     Query(query): Query<SensorDataQuery>,
 ) -> ApiResult<Json<Vec<SensorDataResponse>>> {
     validate_range(query.from, query.to)?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows = sqlx::query_as::<_, SensorRow>(
         "SELECT time,event_id,device_id,metric_type,value,unit FROM sensor_data WHERE tenant_id=$1 \
          AND ($2::uuid IS NULL OR device_id=$2) AND ($3::text IS NULL OR metric_type=$3) \
@@ -47,7 +49,8 @@ pub async fn list_sensor_data(
     )
     .bind(auth.tenant_id).bind(query.device_id).bind(query.metric_type)
     .bind(query.from).bind(query.to).bind(query.limit.unwrap_or(100).clamp(1, 200))
-    .bind(query.offset.unwrap_or(0).max(0)).fetch_all(&state.db).await?;
+    .bind(query.offset.unwrap_or(0).max(0)).fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(rows.into_iter().map(to_response).collect()))
 }
 
@@ -56,12 +59,14 @@ pub async fn latest_sensor_data(
     auth: AuthUser,
     Query(query): Query<SensorDataQuery>,
 ) -> ApiResult<Json<Vec<SensorDataResponse>>> {
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows = sqlx::query_as::<_, SensorRow>(
         "SELECT DISTINCT ON (device_id,metric_type) time,event_id,device_id,metric_type,value,unit \
          FROM sensor_data WHERE tenant_id=$1 AND ($2::uuid IS NULL OR device_id=$2) \
          AND ($3::text IS NULL OR metric_type=$3) ORDER BY device_id,metric_type,time DESC",
     ).bind(auth.tenant_id).bind(query.device_id).bind(query.metric_type)
-    .fetch_all(&state.db).await?;
+    .fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(rows.into_iter().map(to_response).collect()))
 }
 
@@ -72,12 +77,14 @@ pub async fn analytics(
 ) -> ApiResult<Json<Vec<AnalyticsPoint>>> {
     validate_range(Some(query.from), Some(query.to))?;
     let interval = query.interval_minutes.unwrap_or(5).clamp(1, 10_080);
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows = sqlx::query_as::<_, (DateTime<Utc>, f64, f64, f64, i64)>(
         "SELECT time_bucket(make_interval(mins => $6),time) AS bucket,avg(value),min(value),max(value),count(*) \
          FROM sensor_data WHERE tenant_id=$1 AND device_id=$2 AND metric_type=$3 AND time >= $4 AND time <= $5 \
          GROUP BY bucket ORDER BY bucket",
     ).bind(auth.tenant_id).bind(query.device_id).bind(query.metric_type)
-    .bind(query.from).bind(query.to).bind(interval).fetch_all(&state.db).await?;
+    .bind(query.from).bind(query.to).bind(interval).fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(
         rows.into_iter()
             .map(|row| AnalyticsPoint {
