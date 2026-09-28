@@ -1,5 +1,8 @@
-use axum::{routing::{get,patch}, Router};
 use crate::{app_state::AppState, handlers::alert_handler::*};
+use axum::{
+    routing::{get, patch},
+    Router,
+};
 
 pub fn alert_routes() -> Router<AppState> {
     Router::new()
