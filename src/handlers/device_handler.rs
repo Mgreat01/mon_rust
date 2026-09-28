@@ -35,11 +35,13 @@ pub async fn create_device(
     validate_name(&payload.name)?;
     let device_type = payload.device_type.unwrap_or_else(|| "generic".to_owned());
     validate_short_text(&device_type, "Type d'appareil")?;
-    let api_key = format!("dev_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let device_id = Uuid::new_v4();
+    let api_key = format!("dev_{device_id}.{}", Uuid::new_v4().simple());
     let row = sqlx::query_as::<_, DeviceRow>(
-        "INSERT INTO devices (tenant_id,name,description,device_type,api_key_hash) \
-         VALUES ($1,$2,$3,$4,$5) RETURNING id,name,description,device_type,status,last_seen_at,created_at",
+        "INSERT INTO devices (id,tenant_id,name,description,device_type,api_key_hash) \
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,description,device_type,status,last_seen_at,created_at",
     )
+    .bind(device_id)
     .bind(auth.tenant_id)
     .bind(payload.name.trim())
     .bind(payload.description)
