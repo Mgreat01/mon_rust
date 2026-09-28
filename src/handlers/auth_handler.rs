@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    config::tenant::begin_tenant,
     dto::auth_dto::{AuthResponse, CurrentUserResponse, LoginDto, RegisterDto},
     error::{ApiError, ApiResult},
     middleware::jwt::AuthUser,
@@ -18,10 +19,12 @@ pub async fn register(
     Json(payload): Json<RegisterDto>,
 ) -> ApiResult<(StatusCode, Json<AuthResponse>)> {
     let email = normalize_and_validate(&payload.email, &payload.password, &payload.tenant_name)?;
-    let mut transaction = state.db.begin().await?;
-    let tenant_id: Uuid = sqlx::query_scalar("INSERT INTO tenants (name) VALUES ($1) RETURNING id")
+    let tenant_id = Uuid::new_v4();
+    let mut transaction = begin_tenant(&state.db, tenant_id).await?;
+    sqlx::query("INSERT INTO tenants (id,name) VALUES ($1,$2)")
+        .bind(tenant_id)
         .bind(payload.tenant_name.trim())
-        .fetch_one(&mut *transaction)
+        .execute(&mut *transaction)
         .await?;
     let user_id = Uuid::new_v4();
     let role = "ADMIN";
@@ -49,7 +52,7 @@ pub async fn login(
 ) -> ApiResult<Json<AuthResponse>> {
     let email = payload.email.trim().to_lowercase();
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, tenant_id, email, password_hash, role, is_active FROM users WHERE lower(email) = $1",
+        "SELECT id,tenant_id,email,password_hash,role,is_active FROM app_private.user_for_login($1)",
     )
     .bind(email)
     .fetch_optional(&state.db)
@@ -66,14 +69,16 @@ pub async fn me(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> ApiResult<Json<CurrentUserResponse>> {
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, String)>(
         "SELECT id, tenant_id, email, role FROM users WHERE id = $1 AND tenant_id = $2 AND is_active",
     )
     .bind(auth.user_id)
     .bind(auth.tenant_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| ApiError::unauthorized("Utilisateur inactif ou introuvable"))?;
+    transaction.commit().await?;
     Ok(Json(CurrentUserResponse {
         id: row.0,
         tenant_id: row.1,
