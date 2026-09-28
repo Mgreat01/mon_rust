@@ -1,8 +1,8 @@
+use axum::extract::ws::{Message, WebSocket};
 use axum::{
     extract::{Query, State, WebSocketUpgrade},
     response::Response,
 };
-use axum::extract::ws::{Message, WebSocket};
 use serde::Deserialize;
 
 use crate::{app_state::AppState, error::ApiResult, services::auth_service::decode_token};
