@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     dto::device_dto::{
-        CreateDeviceDto, CreatedDeviceResponse, DeviceResponse, Pagination, UpdateDeviceDto,
+        CreateDeviceDto, CreatedDeviceResponse, DeviceResponse, Pagination,
+        RotatedCredentialResponse, UpdateDeviceDto,
     },
     error::{ApiError, ApiResult},
     middleware::jwt::AuthUser,
@@ -24,6 +25,9 @@ type DeviceRow = (
     String,
     Option<DateTime<Utc>>,
     DateTime<Utc>,
+    i32,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
 );
 
 pub async fn create_device(
@@ -36,10 +40,10 @@ pub async fn create_device(
     let device_type = payload.device_type.unwrap_or_else(|| "generic".to_owned());
     validate_short_text(&device_type, "Type d'appareil")?;
     let device_id = Uuid::new_v4();
-    let api_key = format!("dev_{device_id}.{}", Uuid::new_v4().simple());
+    let api_key = generate_device_api_key(device_id);
     let row = sqlx::query_as::<_, DeviceRow>(
         "INSERT INTO devices (id,tenant_id,name,description,device_type,api_key_hash) \
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,description,device_type,status,last_seen_at,created_at",
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at",
     )
     .bind(device_id)
     .bind(auth.tenant_id)
@@ -66,7 +70,7 @@ pub async fn list_devices(
     let limit = page.limit.unwrap_or(50).clamp(1, 200);
     let offset = page.offset.unwrap_or(0).max(0);
     let rows = sqlx::query_as::<_, DeviceRow>(
-        "SELECT id,name,description,device_type,status,last_seen_at,created_at FROM devices \
+        "SELECT id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at FROM devices \
          WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
     )
     .bind(auth.tenant_id)
@@ -107,7 +111,7 @@ pub async fn update_device(
     let row = sqlx::query_as::<_, DeviceRow>(
         "UPDATE devices SET name=COALESCE($3,name), description=COALESCE($4,description), \
          device_type=COALESCE($5,device_type), status=COALESCE($6,status), updated_at=now() \
-         WHERE id=$1 AND tenant_id=$2 RETURNING id,name,description,device_type,status,last_seen_at,created_at",
+         WHERE id=$1 AND tenant_id=$2 RETURNING id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at",
     )
     .bind(id)
     .bind(auth.tenant_id)
@@ -138,9 +142,57 @@ pub async fn delete_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn rotate_device_credential(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<RotatedCredentialResponse>> {
+    auth.require_role(&["ADMIN"])?;
+    let api_key = generate_device_api_key(id);
+    let hash = hash_password(&api_key)?;
+    let row = sqlx::query_as::<_, (i32, DateTime<Utc>)>(
+        "UPDATE devices SET api_key_hash=$3,api_key_version=api_key_version+1,\
+         credential_updated_at=now(),credential_revoked_at=NULL,updated_at=now() \
+         WHERE id=$1 AND tenant_id=$2 RETURNING api_key_version,credential_updated_at",
+    )
+    .bind(id)
+    .bind(auth.tenant_id)
+    .bind(hash)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| ApiError::not_found("Appareil"))?;
+
+    Ok(Json(RotatedCredentialResponse {
+        device_id: id,
+        api_key,
+        api_key_version: row.0,
+        issued_at: row.1,
+    }))
+}
+
+pub async fn revoke_device_credential(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth.require_role(&["ADMIN"])?;
+    let result = sqlx::query(
+        "UPDATE devices SET credential_revoked_at=COALESCE(credential_revoked_at,now()),\
+         credential_updated_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2",
+    )
+    .bind(id)
+    .bind(auth.tenant_id)
+    .execute(&state.db)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Appareil"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn find_device(state: &AppState, tenant_id: Uuid, id: Uuid) -> ApiResult<DeviceRow> {
     sqlx::query_as::<_, DeviceRow>(
-        "SELECT id,name,description,device_type,status,last_seen_at,created_at FROM devices WHERE id=$1 AND tenant_id=$2",
+        "SELECT id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at FROM devices WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
     .bind(tenant_id)
@@ -158,7 +210,14 @@ fn to_response(row: DeviceRow) -> DeviceResponse {
         status: row.4,
         last_seen_at: row.5,
         created_at: row.6,
+        api_key_version: row.7,
+        credential_status: if row.9.is_some() { "REVOKED" } else { "ACTIVE" },
+        credential_updated_at: row.8,
     }
+}
+
+fn generate_device_api_key(device_id: Uuid) -> String {
+    format!("dev_{device_id}.{}", Uuid::new_v4().simple())
 }
 
 fn validate_name(value: &str) -> ApiResult<()> {

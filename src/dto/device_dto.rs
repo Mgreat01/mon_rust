@@ -26,6 +26,9 @@ pub struct DeviceResponse {
     pub status: String,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub api_key_version: i32,
+    pub credential_status: &'static str,
+    pub credential_updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,6 +36,14 @@ pub struct CreatedDeviceResponse {
     #[serde(flatten)]
     pub device: DeviceResponse,
     pub api_key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RotatedCredentialResponse {
+    pub device_id: Uuid,
+    pub api_key: String,
+    pub api_key_version: i32,
+    pub issued_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
