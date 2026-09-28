@@ -4,10 +4,12 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    config::tenant::begin_tenant,
     dto::device_dto::{
         CreateDeviceDto, CreatedDeviceResponse, DeviceResponse, Pagination,
         RotatedCredentialResponse, UpdateDeviceDto,
@@ -41,6 +43,7 @@ pub async fn create_device(
     validate_short_text(&device_type, "Type d'appareil")?;
     let device_id = Uuid::new_v4();
     let api_key = generate_device_api_key(device_id);
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let row = sqlx::query_as::<_, DeviceRow>(
         "INSERT INTO devices (id,tenant_id,name,description,device_type,api_key_hash) \
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at",
@@ -51,8 +54,9 @@ pub async fn create_device(
     .bind(payload.description)
     .bind(device_type)
     .bind(hash_password(&api_key)?)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *transaction)
     .await?;
+    transaction.commit().await?;
     Ok((
         StatusCode::CREATED,
         Json(CreatedDeviceResponse {
@@ -69,6 +73,7 @@ pub async fn list_devices(
 ) -> ApiResult<Json<Vec<DeviceResponse>>> {
     let limit = page.limit.unwrap_or(50).clamp(1, 200);
     let offset = page.offset.unwrap_or(0).max(0);
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows = sqlx::query_as::<_, DeviceRow>(
         "SELECT id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at FROM devices \
          WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
@@ -76,8 +81,9 @@ pub async fn list_devices(
     .bind(auth.tenant_id)
     .bind(limit)
     .bind(offset)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *transaction)
     .await?;
+    transaction.commit().await?;
     Ok(Json(rows.into_iter().map(to_response).collect()))
 }
 
@@ -86,7 +92,9 @@ pub async fn get_device(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<DeviceResponse>> {
-    let row = find_device(&state, auth.tenant_id, id).await?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
+    let row = find_device(&mut transaction, auth.tenant_id, id).await?;
+    transaction.commit().await?;
     Ok(Json(to_response(row)))
 }
 
@@ -108,6 +116,7 @@ pub async fn update_device(
             return Err(ApiError::bad_request("Statut d'appareil invalide"));
         }
     }
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let row = sqlx::query_as::<_, DeviceRow>(
         "UPDATE devices SET name=COALESCE($3,name), description=COALESCE($4,description), \
          device_type=COALESCE($5,device_type), status=COALESCE($6,status), updated_at=now() \
@@ -119,9 +128,10 @@ pub async fn update_device(
     .bind(payload.description)
     .bind(payload.device_type)
     .bind(payload.status)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| ApiError::not_found("Appareil"))?;
+    transaction.commit().await?;
     Ok(Json(to_response(row)))
 }
 
@@ -131,14 +141,16 @@ pub async fn delete_device(
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
     auth.require_role(&["ADMIN"])?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE id=$1 AND tenant_id=$2")
         .bind(id)
         .bind(auth.tenant_id)
-        .execute(&state.db)
+        .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Appareil"));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -150,6 +162,7 @@ pub async fn rotate_device_credential(
     auth.require_role(&["ADMIN"])?;
     let api_key = generate_device_api_key(id);
     let hash = hash_password(&api_key)?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let row = sqlx::query_as::<_, (i32, DateTime<Utc>)>(
         "UPDATE devices SET api_key_hash=$3,api_key_version=api_key_version+1,\
          credential_updated_at=now(),credential_revoked_at=NULL,updated_at=now() \
@@ -158,9 +171,10 @@ pub async fn rotate_device_credential(
     .bind(id)
     .bind(auth.tenant_id)
     .bind(hash)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| ApiError::not_found("Appareil"))?;
+    transaction.commit().await?;
 
     Ok(Json(RotatedCredentialResponse {
         device_id: id,
@@ -176,27 +190,33 @@ pub async fn revoke_device_credential(
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
     auth.require_role(&["ADMIN"])?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let result = sqlx::query(
         "UPDATE devices SET credential_revoked_at=COALESCE(credential_revoked_at,now()),\
          credential_updated_at=now(),updated_at=now() WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
     .bind(auth.tenant_id)
-    .execute(&state.db)
+    .execute(&mut *transaction)
     .await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Appareil"));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn find_device(state: &AppState, tenant_id: Uuid, id: Uuid) -> ApiResult<DeviceRow> {
+async fn find_device(
+    transaction: &mut Transaction<'_, Postgres>,
+    tenant_id: Uuid,
+    id: Uuid,
+) -> ApiResult<DeviceRow> {
     sqlx::query_as::<_, DeviceRow>(
         "SELECT id,name,description,device_type,status,last_seen_at,created_at,api_key_version,credential_updated_at,credential_revoked_at FROM devices WHERE id=$1 AND tenant_id=$2",
     )
     .bind(id)
     .bind(tenant_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut **transaction)
     .await?
     .ok_or_else(|| ApiError::not_found("Appareil"))
 }
