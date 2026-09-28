@@ -1,11 +1,12 @@
-use sqlx::PgPool;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
-pub async fn connect_db() -> PgPool {
-    let url =
-        std::env::var("DATABASE_URL")
-            .expect("DATABASE_URL manquant");
+pub async fn connect_db() -> Result<PgPool, sqlx::Error> {
+    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL manquant");
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&url)
+        .await?;
 
-    PgPool::connect(&url)
-        .await
-        .expect("Connexion PostgreSQL impossible")
+    sqlx::migrate!().run(&pool).await?;
+    Ok(pool)
 }
