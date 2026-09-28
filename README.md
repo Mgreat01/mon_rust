@@ -27,6 +27,8 @@ Toutes les routes métier sont préfixées par `/api/v1`.
 | `GET` | `/api/v1/auth/me` | Bearer | Profil courant |
 | `GET/POST` | `/api/v1/devices` | Bearer | Lister/créer les appareils |
 | `GET/PUT/DELETE` | `/api/v1/devices/{id}` | Bearer | Consulter/modifier/supprimer un appareil |
+| `POST` | `/api/v1/devices/{id}/credentials` | Bearer ADMIN | Remplacer la clé et la révéler une seule fois |
+| `DELETE` | `/api/v1/devices/{id}/credentials` | Bearer ADMIN | Révoquer immédiatement la clé active |
 | `POST` | `/api/v1/sensor-data/ingest` | Device | Ingérer une mesure |
 | `GET` | `/api/v1/sensor-data` | Bearer | Historique filtré et paginé |
 | `GET` | `/api/v1/sensor-data/latest` | Bearer | Dernières mesures |
@@ -52,6 +54,8 @@ Content-Type: application/json
   "timestamp": "2026-09-28T10:00:00Z"
 }
 ```
+
+La rotation incrémente `api_key_version` et rend immédiatement l'ancienne clé inutilisable. La révocation conserve l'appareil et son historique mais bloque toute nouvelle ingestion. Une rotation après révocation produit une nouvelle clé active. Les clés en clair ne sont ni stockées ni récupérables ; conservez la valeur retournée par la création ou la rotation dans un gestionnaire de secrets.
 
 ## Qualité
 

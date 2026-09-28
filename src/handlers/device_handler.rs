@@ -233,3 +233,20 @@ fn validate_short_text(value: &str, label: &str) -> ApiResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::generate_device_api_key;
+    use uuid::Uuid;
+
+    #[test]
+    fn genere_des_cles_uniques_liees_a_l_appareil() {
+        let device_id = Uuid::new_v4();
+        let first = generate_device_api_key(device_id);
+        let second = generate_device_api_key(device_id);
+
+        assert_ne!(first, second);
+        assert!(first.starts_with(&format!("dev_{device_id}.")));
+        assert_eq!(first.split_once('.').expect("format de clé").1.len(), 32);
+    }
+}
