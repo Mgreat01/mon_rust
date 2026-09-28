@@ -27,14 +27,14 @@ pub async fn authenticate_device(
         .ok_or_else(|| ApiError::unauthorized("Clé d'appareil invalide"))?;
     let device_id =
         Uuid::parse_str(id_part).map_err(|_| ApiError::unauthorized("Clé d'appareil invalide"))?;
-    let row = sqlx::query_as::<_, (Uuid, String, String)>(
-        "SELECT tenant_id, api_key_hash, status FROM devices WHERE id=$1",
+    let row = sqlx::query_as::<_, (Uuid, String, String, Option<DateTime<Utc>>)>(
+        "SELECT tenant_id,api_key_hash,status,credential_revoked_at FROM devices WHERE id=$1",
     )
     .bind(device_id)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| ApiError::unauthorized("Clé d'appareil invalide"))?;
-    if row.2 == "DISABLED" || !verify_password(&row.1, api_key) {
+    if row.2 == "DISABLED" || row.3.is_some() || !verify_password(&row.1, api_key) {
         return Err(ApiError::unauthorized("Clé d'appareil invalide"));
     }
     Ok(DeviceIdentity {
