@@ -47,7 +47,11 @@ impl ApiError {
     }
 
     pub fn not_found(resource: &'static str) -> Self {
-        Self::new(StatusCode::NOT_FOUND, "NOT_FOUND", format!("{resource} introuvable"))
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            format!("{resource} introuvable"),
+        )
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
