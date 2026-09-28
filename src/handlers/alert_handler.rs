@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    config::tenant::begin_tenant,
     error::{ApiError, ApiResult},
     middleware::jwt::AuthUser,
 };
@@ -81,9 +82,11 @@ pub async fn create_rule(
     {
         return Err(ApiError::bad_request("Règle d'alerte invalide"));
     }
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let row = sqlx::query_as::<_,RuleRow>("INSERT INTO alert_rules (tenant_id,device_id,name,metric_type,operator,threshold,severity,cooldown_seconds) SELECT $1,$2,$3,$4,$5,$6,$7,$8 WHERE EXISTS (SELECT 1 FROM devices WHERE tenant_id=$1 AND id=$2) RETURNING id,device_id,name,metric_type,operator,threshold,severity,cooldown_seconds,enabled")
         .bind(auth.tenant_id).bind(body.device_id).bind(body.name.trim()).bind(body.metric_type.trim()).bind(body.operator).bind(body.threshold).bind(body.severity).bind(body.cooldown_seconds.unwrap_or(300).max(0))
-        .fetch_optional(&state.db).await?.ok_or_else(|| ApiError::not_found("Appareil"))?;
+        .fetch_optional(&mut *transaction).await?.ok_or_else(|| ApiError::not_found("Appareil"))?;
+    transaction.commit().await?;
     Ok((StatusCode::CREATED, Json(rule(row))))
 }
 
@@ -91,7 +94,9 @@ pub async fn list_rules(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> ApiResult<Json<Vec<Rule>>> {
-    let rows=sqlx::query_as::<_,RuleRow>("SELECT id,device_id,name,metric_type,operator,threshold,severity,cooldown_seconds,enabled FROM alert_rules WHERE tenant_id=$1 ORDER BY created_at DESC").bind(auth.tenant_id).fetch_all(&state.db).await?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
+    let rows=sqlx::query_as::<_,RuleRow>("SELECT id,device_id,name,metric_type,operator,threshold,severity,cooldown_seconds,enabled FROM alert_rules WHERE tenant_id=$1 ORDER BY created_at DESC").bind(auth.tenant_id).fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(rows.into_iter().map(rule).collect()))
 }
 
@@ -101,14 +106,16 @@ pub async fn delete_rule(
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
     auth.require_role(&["ADMIN", "OPERATOR"])?;
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let result = sqlx::query("DELETE FROM alert_rules WHERE tenant_id=$1 AND id=$2")
         .bind(auth.tenant_id)
         .bind(id)
-        .execute(&state.db)
+        .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Règle"));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -117,8 +124,10 @@ pub async fn list_alerts(
     auth: AuthUser,
     Query(page): Query<Page>,
 ) -> ApiResult<Json<Vec<Alert>>> {
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows=sqlx::query_as::<_,(Uuid,Uuid,Uuid,f64,String,String,String,DateTime<Utc>)>("SELECT id,device_id,rule_id,value,severity,message,status,created_at FROM alerts WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3")
-        .bind(auth.tenant_id).bind(page.limit.unwrap_or(100).clamp(1,200)).bind(page.offset.unwrap_or(0).max(0)).fetch_all(&state.db).await?;
+        .bind(auth.tenant_id).bind(page.limit.unwrap_or(100).clamp(1,200)).bind(page.offset.unwrap_or(0).max(0)).fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(
         rows.into_iter()
             .map(|r| Alert {
@@ -145,11 +154,13 @@ pub async fn change_alert_status(
     if !["ACKNOWLEDGED", "RESOLVED"].contains(&body.status.as_str()) {
         return Err(ApiError::bad_request("Statut d'alerte invalide"));
     }
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let result=sqlx::query("UPDATE alerts SET status=$3,acknowledged_at=CASE WHEN $3='ACKNOWLEDGED' THEN now() ELSE acknowledged_at END,resolved_at=CASE WHEN $3='RESOLVED' THEN now() ELSE NULL END WHERE tenant_id=$1 AND id=$2")
-        .bind(auth.tenant_id).bind(id).bind(body.status).execute(&state.db).await?;
+        .bind(auth.tenant_id).bind(id).bind(body.status).execute(&mut *transaction).await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Alerte"));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -158,8 +169,10 @@ pub async fn list_notifications(
     auth: AuthUser,
     Query(page): Query<Page>,
 ) -> ApiResult<Json<Vec<Notification>>> {
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let rows=sqlx::query_as::<_,(Uuid,Option<Uuid>,String,String,bool,DateTime<Utc>)>("SELECT id,alert_id,title,message,is_read,created_at FROM notifications WHERE tenant_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4")
-        .bind(auth.tenant_id).bind(auth.user_id).bind(page.limit.unwrap_or(100).clamp(1,200)).bind(page.offset.unwrap_or(0).max(0)).fetch_all(&state.db).await?;
+        .bind(auth.tenant_id).bind(auth.user_id).bind(page.limit.unwrap_or(100).clamp(1,200)).bind(page.offset.unwrap_or(0).max(0)).fetch_all(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(Json(
         rows.into_iter()
             .map(|r| Notification {
@@ -179,17 +192,19 @@ pub async fn read_notification(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
+    let mut transaction = begin_tenant(&state.db, auth.tenant_id).await?;
     let result = sqlx::query(
         "UPDATE notifications SET is_read=true WHERE tenant_id=$1 AND user_id=$2 AND id=$3",
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
     .bind(id)
-    .execute(&state.db)
+    .execute(&mut *transaction)
     .await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Notification"));
     }
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
