@@ -150,7 +150,15 @@ async fn find_device(state: &AppState, tenant_id: Uuid, id: Uuid) -> ApiResult<D
 }
 
 fn to_response(row: DeviceRow) -> DeviceResponse {
-    DeviceResponse { id: row.0, name: row.1, description: row.2, device_type: row.3, status: row.4, last_seen_at: row.5, created_at: row.6 }
+    DeviceResponse {
+        id: row.0,
+        name: row.1,
+        description: row.2,
+        device_type: row.3,
+        status: row.4,
+        last_seen_at: row.5,
+        created_at: row.6,
+    }
 }
 
 fn validate_name(value: &str) -> ApiResult<()> {
