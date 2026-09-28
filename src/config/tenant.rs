@@ -71,18 +71,22 @@ mod tests {
             .execute(&mut *transaction)
             .await
             .expect("tenant de test");
-        sqlx::query("INSERT INTO devices (id,tenant_id,name,api_key_hash) VALUES ($1,$2,$3,'test')")
-            .bind(device)
-            .bind(tenant)
-            .bind(format!("device-{device}"))
-            .execute(&mut *transaction)
-            .await
-            .expect("appareil de test");
+        sqlx::query(
+            "INSERT INTO devices (id,tenant_id,name,api_key_hash) VALUES ($1,$2,$3,'test')",
+        )
+        .bind(device)
+        .bind(tenant)
+        .bind(format!("device-{device}"))
+        .execute(&mut *transaction)
+        .await
+        .expect("appareil de test");
         transaction.commit().await.expect("commit du jeu de test");
     }
 
     async fn cleanup(pool: &sqlx::PgPool, tenant: Uuid) {
-        let mut transaction = begin_tenant(pool, tenant).await.expect("contexte de nettoyage");
+        let mut transaction = begin_tenant(pool, tenant)
+            .await
+            .expect("contexte de nettoyage");
         sqlx::query("DELETE FROM tenants WHERE id=$1")
             .bind(tenant)
             .execute(&mut *transaction)
