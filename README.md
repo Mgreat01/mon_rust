@@ -14,6 +14,10 @@ cargo run
 
 Remplacez impérativement `JWT_SECRET` par une valeur aléatoire d'au moins 32 caractères. Les migrations SQL sont appliquées automatiquement au démarrage.
 
+`MIGRATION_DATABASE_URL` utilise le propriétaire de la base uniquement pour appliquer les migrations. `DATABASE_URL` doit impérativement utiliser un rôle non-superutilisateur sans attribut `BYPASSRLS`; le serveur refuse de démarrer autrement. Docker Compose crée le rôle local `iot_app` lors de l'initialisation d'un nouveau volume. Pour une base déjà existante, exécutez `docker/init.sql` avec un administrateur puis relancez les migrations.
+
+Toutes les opérations métier ouvrent une transaction qui définit `app.tenant_id` avec une portée locale. Les politiques PostgreSQL RLS filtrent ensuite les lectures et écritures, même si une requête applicative oublie son prédicat `tenant_id`.
+
 ## API
 
 Toutes les routes métier sont préfixées par `/api/v1`.
@@ -64,5 +68,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+Le test d'intégration RLS utilise `TEST_DATABASE_URL`. Sans cette variable, il est ignoré afin que les tests unitaires restent exécutables sans PostgreSQL. Avec cette variable, il crée deux tenants temporaires et vérifie qu'une transaction du tenant A ne peut ni voir ni modifier l'appareil du tenant B.
 
 Le document local `gm.md` contient la vision produit et n'est volontairement pas suivi par Git.
