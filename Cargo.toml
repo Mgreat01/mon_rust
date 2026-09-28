@@ -15,6 +15,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "request-id"] }
 serde = { version = "1", features = ["derive"] }
 
 serde_json = "1"
+sha2 = "0.10"
 
 # Base de données
 sqlx = { version = "0.8", features = [
