@@ -3,14 +3,15 @@ use axum::{routing::get, Router};
 use crate::{
     app_state::AppState,
     handlers::device_handler::{
-        create_device,
-        delete_device, get_device, list_devices, update_device,
+        create_device, delete_device, get_device, list_devices, update_device,
     },
 };
 
 pub fn device_routes() -> Router<AppState> {
-
     Router::new()
         .route("/", get(list_devices).post(create_device))
-        .route("/{id}", get(get_device).put(update_device).delete(delete_device))
+        .route(
+            "/{id}",
+            get(get_device).put(update_device).delete(delete_device),
+        )
 }

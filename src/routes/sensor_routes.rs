@@ -1,4 +1,7 @@
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 
 use crate::{
     app_state::AppState,
@@ -7,9 +10,7 @@ use crate::{
     },
 };
 
-pub fn sensor_routes()
-    -> Router<AppState>
-{
+pub fn sensor_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_sensor_data))
         .route("/ingest", post(create_sensor_data))
