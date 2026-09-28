@@ -239,12 +239,20 @@ pub async fn reset_password(
     .filter(|row| row.4.is_none() && row.3 > Utc::now())
     .ok_or_else(|| ApiError::bad_request("Jeton de réinitialisation invalide ou expiré"))?;
     let mut transaction = begin_tenant(&state.db, reset.1).await?;
+    let claimed = sqlx::query(
+        "UPDATE password_reset_tokens SET used_at=now() \
+         WHERE id=$1 AND used_at IS NULL AND expires_at>now()",
+    )
+    .bind(reset.0)
+    .execute(&mut *transaction)
+    .await?;
+    if claimed.rows_affected() == 0 {
+        return Err(ApiError::bad_request(
+            "Jeton de réinitialisation invalide ou expiré",
+        ));
+    }
     sqlx::query("UPDATE users SET password_hash=$2,password_changed_at=now(),failed_login_attempts=0,locked_until=NULL WHERE id=$1")
         .bind(reset.2).bind(hash_password(&payload.new_password)?).execute(&mut *transaction).await?;
-    sqlx::query("UPDATE password_reset_tokens SET used_at=now() WHERE id=$1 AND used_at IS NULL")
-        .bind(reset.0)
-        .execute(&mut *transaction)
-        .await?;
     sqlx::query(
         "UPDATE auth_refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1",
     )
