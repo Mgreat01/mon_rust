@@ -12,7 +12,10 @@ use std::net::SocketAddr;
 
 use app_state::AppState;
 use axum::{
-    http::{header::{AUTHORIZATION, CONTENT_TYPE}, HeaderValue, Method, StatusCode},
+    http::{
+        header::{AUTHORIZATION, CONTENT_TYPE},
+        HeaderValue, Method, StatusCode,
+    },
     routing::get,
     Json, Router,
 };
@@ -31,14 +34,17 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,tower_http=info".into()))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,tower_http=info".into()),
+        )
         .json()
         .init();
 
     let db = connect_db().await?;
     let (events, _) = tokio::sync::broadcast::channel(1_024);
     let state = AppState { db, events };
-    let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:4200".to_owned());
+    let cors_origin =
+        std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "http://localhost:4200".to_owned());
     let origin = HeaderValue::from_str(&cors_origin)?;
 
     let api = Router::new()
@@ -54,7 +60,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(
             CorsLayer::new()
                 .allow_origin(origin)
-                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::PATCH,
+                    Method::DELETE,
+                ])
                 .allow_headers([AUTHORIZATION, CONTENT_TYPE]),
         )
         .layer(TraceLayer::new_for_http())
@@ -75,8 +87,12 @@ async fn health() -> (StatusCode, Json<Value>) {
     (StatusCode::OK, Json(json!({"status":"ok"})))
 }
 
-async fn readiness(axum::extract::State(state): axum::extract::State<AppState>) -> ApiResult<Json<Value>> {
-    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db).await?;
+async fn readiness(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> ApiResult<Json<Value>> {
+    sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&state.db)
+        .await?;
     Ok(Json(json!({"status":"ready"})))
 }
 
@@ -86,7 +102,8 @@ async fn shutdown_signal() {
     let terminate = async {
         signal::unix::signal(signal::unix::SignalKind::terminate())
             .expect("gestionnaire SIGTERM")
-            .recv().await;
+            .recv()
+            .await;
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();

@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    dto::sensor_dto::{AnalyticsPoint, AnalyticsQuery, CreateSensorDataDto, SensorDataQuery, SensorDataResponse},
+    dto::sensor_dto::{
+        AnalyticsPoint, AnalyticsQuery, CreateSensorDataDto, SensorDataQuery, SensorDataResponse,
+    },
     error::{ApiError, ApiResult},
     middleware::jwt::AuthUser,
     services::sensor_service::{authenticate_device, ingest},
@@ -21,9 +23,14 @@ pub async fn create_sensor_data(
     headers: HeaderMap,
     Json(payload): Json<CreateSensorDataDto>,
 ) -> ApiResult<(StatusCode, Json<SensorDataResponse>)> {
-    let authorization = headers.get(AUTHORIZATION).and_then(|value| value.to_str().ok());
+    let authorization = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
     let device = authenticate_device(&state.db, authorization).await?;
-    Ok((StatusCode::CREATED, Json(ingest(&state, device, payload).await?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(ingest(&state, device, payload).await?),
+    ))
 }
 
 pub async fn list_sensor_data(
@@ -71,16 +78,35 @@ pub async fn analytics(
          GROUP BY bucket ORDER BY bucket",
     ).bind(auth.tenant_id).bind(query.device_id).bind(query.metric_type)
     .bind(query.from).bind(query.to).bind(interval).fetch_all(&state.db).await?;
-    Ok(Json(rows.into_iter().map(|row| AnalyticsPoint { timestamp: row.0, average: row.1, min: row.2, max: row.3, count: row.4 }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| AnalyticsPoint {
+                timestamp: row.0,
+                average: row.1,
+                min: row.2,
+                max: row.3,
+                count: row.4,
+            })
+            .collect(),
+    ))
 }
 
 fn validate_range(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> ApiResult<()> {
     if from.zip(to).is_some_and(|(from, to)| from >= to) {
-        return Err(ApiError::bad_request("La date 'from' doit précéder la date 'to'"));
+        return Err(ApiError::bad_request(
+            "La date 'from' doit précéder la date 'to'",
+        ));
     }
     Ok(())
 }
 
 fn to_response(row: SensorRow) -> SensorDataResponse {
-    SensorDataResponse { timestamp: row.0, event_id: row.1, device_id: row.2, metric_type: row.3, value: row.4, unit: row.5 }
+    SensorDataResponse {
+        timestamp: row.0,
+        event_id: row.1,
+        device_id: row.2,
+        metric_type: row.3,
+        value: row.4,
+        unit: row.5,
+    }
 }
