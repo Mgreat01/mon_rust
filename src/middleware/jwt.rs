@@ -4,10 +4,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::{
-    error::ApiError,
-    services::auth_service::decode_token,
-};
+use crate::{error::ApiError, services::auth_service::decode_token};
 
 #[derive(Clone, Debug)]
 pub struct AuthUser {
