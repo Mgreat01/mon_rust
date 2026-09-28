@@ -67,8 +67,8 @@ pub async fn ingest(
     let alerts = evaluate_alerts(&mut tx, &device, &payload.metric_type, payload.value).await?;
     tx.commit().await?;
     let response = SensorDataResponse { event_id, device_id: device.id, timestamp, metric_type: payload.metric_type, value: payload.value, unit: payload.unit };
-    let _ = state.events.send(AppEvent::SensorData(response.clone()));
-    for alert in alerts { let _ = state.events.send(AppEvent::Alert(alert)); }
+    let _ = state.events.send(AppEvent::SensorData { tenant_id: device.tenant_id, data: response.clone() });
+    for alert in alerts { let _ = state.events.send(AppEvent::Alert { tenant_id: device.tenant_id, data: alert }); }
     Ok(response)
 }
 

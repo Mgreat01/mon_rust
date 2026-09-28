@@ -6,8 +6,24 @@ use crate::dto::sensor_dto::SensorDataResponse;
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "event", content = "data", rename_all = "snake_case")]
 pub enum AppEvent {
-    SensorData(SensorDataResponse),
-    Alert(AlertEvent),
+    SensorData {
+        #[serde(skip)]
+        tenant_id: uuid::Uuid,
+        data: SensorDataResponse,
+    },
+    Alert {
+        #[serde(skip)]
+        tenant_id: uuid::Uuid,
+        data: AlertEvent,
+    },
+}
+
+impl AppEvent {
+    pub fn tenant_id(&self) -> uuid::Uuid {
+        match self {
+            Self::SensorData { tenant_id, .. } | Self::Alert { tenant_id, .. } => *tenant_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
