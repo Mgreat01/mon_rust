@@ -157,3 +157,34 @@ fn validate(payload: &CreateSensorDataDto) -> ApiResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate;
+    use crate::dto::sensor_dto::CreateSensorDataDto;
+
+    fn measurement(value: f64, metric_type: &str) -> CreateSensorDataDto {
+        CreateSensorDataDto {
+            event_id: None,
+            metric_type: metric_type.to_owned(),
+            value,
+            unit: Some("°C".to_owned()),
+            timestamp: None,
+        }
+    }
+
+    #[test]
+    fn accepte_une_mesure_finie() {
+        assert!(validate(&measurement(21.5, "temperature")).is_ok());
+    }
+
+    #[test]
+    fn refuse_une_mesure_non_finie() {
+        assert!(validate(&measurement(f64::NAN, "temperature")).is_err());
+    }
+
+    #[test]
+    fn refuse_un_type_vide() {
+        assert!(validate(&measurement(21.5, " ")).is_err());
+    }
+}

@@ -86,3 +86,17 @@ fn jwt_secret() -> ApiResult<String> {
     }
     Ok(secret)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{hash_password, verify_password};
+
+    #[test]
+    fn hash_password_ne_conserve_pas_le_secret() {
+        let password = "mot-de-passe-solide";
+        let hash = hash_password(password).expect("hash valide");
+        assert_ne!(hash, password);
+        assert!(verify_password(&hash, password));
+        assert!(!verify_password(&hash, "mauvais-mot-de-passe"));
+    }
+}
